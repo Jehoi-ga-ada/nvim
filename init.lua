@@ -264,6 +264,29 @@ require('lazy').setup({
   -- NOTE: Plugins can be added via a link or github org/name. To run setup automatically, use `opts = {}`
   { 'NMAC427/guess-indent.nvim', opts = {} },
 
+  {
+    'linux-cultist/venv-selector.nvim',
+    dependencies = {
+      'neovim/nvim-lspconfig',
+      'nvim-telescope/telescope.nvim',
+      'mfussenegger/nvim-dap-python',
+    },
+    branch = 'regexp', -- Use this branch for better performance
+    config = function()
+      require('venv-selector').setup {
+        settings = {
+          options = {
+            cached_venv_automatic_activation = true, -- Remembers your choice per project
+            search_venv_managers = true, -- Finds poetry, pipenv, etc.
+          },
+        },
+      }
+    end,
+    keys = {
+      { '<leader>vs', '<cmd>VenvSelect<cr>', desc = '[V]env [S]elect' },
+    },
+  },
+
   -- Alternatively, use `config = function() ... end` for full control over the configuration.
   -- If you prefer to call `setup` explicitly, use:
   --    {
@@ -608,7 +631,18 @@ require('lazy').setup({
       local servers = {
         clangd = {},
         gopls = {},
-        pyright = {},
+        pyright = {
+          settings = {
+            python = {
+              analysis = {
+                typeCheckingMode = 'off', -- Reduces strictness to match VS Code
+                autoSearchPaths = true,
+                useLibraryCodeForTypes = true,
+                diagnosticMode = 'openFilesOnly',
+              },
+            },
+          },
+        },
         rust_analyzer = {},
         --
         -- Some languages (like typescript) have entire language plugins that can be useful:
@@ -770,7 +804,10 @@ require('lazy').setup({
         -- <c-k>: Toggle signature help
         --
         -- See :h blink-cmp-config-keymap for defining your own keymap
-        preset = 'default',
+        preset = 'super-tab',
+        sources = {
+          default = { 'lsp', 'path', 'snippets', 'buffer' },
+        },
 
         -- For more advanced Luasnip keymaps (e.g. selecting choice nodes, expansion) see:
         --    https://github.com/L3MON4D3/LuaSnip?tab=readme-ov-file#keymaps
