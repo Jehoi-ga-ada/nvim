@@ -271,7 +271,7 @@ require('lazy').setup({
       'nvim-telescope/telescope.nvim',
       'mfussenegger/nvim-dap-python',
     },
-    branch = 'regexp', -- Use this branch for better performance
+    -- branch = 'regexp', -- Use this branch for better performance
     config = function()
       require('venv-selector').setup {
         settings = {
