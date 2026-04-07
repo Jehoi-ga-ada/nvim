@@ -805,7 +805,19 @@ require('lazy').setup({
         -- <c-k>: Toggle signature help
         --
         -- See :h blink-cmp-config-keymap for defining your own keymap
-        preset = 'super-tab',
+        preset = 'none',
+
+        -- Both Tab and Enter will now "Accept" the current selection
+        ['<Tab>'] = { 'accept', 'fallback' },
+        ['<CR>'] = { 'accept', 'fallback' },
+
+        -- Standard Arrow Key navigation (Blink defaults)
+        ['<Up>'] = { 'select_prev', 'fallback' },
+        ['<Down>'] = { 'select_next', 'fallback' },
+
+        -- Standard utility keys
+        ['<C-space>'] = { 'show', 'show_documentation', 'hide_documentation' },
+        ['<C-e>'] = { 'hide' },
         sources = {
           default = { 'lsp', 'path', 'snippets', 'buffer' },
         },
