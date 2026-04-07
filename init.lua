@@ -87,6 +87,39 @@ P.S. You can delete this when you're done too. It's your config now! :)
 -- Set <space> as the leader key
 -- See `:help mapleader`
 --  NOTE: Must happen before plugins are loaded (otherwise wrong leader will be used)
+
+-- Force Neovim to use the .venv in the current working directory
+local venv_path = vim.fn.getcwd() .. '/.venv'
+if vim.fn.executable(venv_path .. '/bin/python') == 1 then
+  vim.env.VIRTUAL_ENV = venv_path
+  vim.env.PATH = venv_path .. '/bin:' .. vim.env.PATH
+end
+
+-- Function to sync .env to Neovim's internal environment
+local function sync_env()
+  local f = io.open('.env', 'r')
+  if f then
+    for line in f:lines() do
+      -- Match key=value, ignoring comments and whitespace
+      local key, value = line:match '^%s*([^#%s=]+)%s*=%s*(.-)%s*$'
+      if key and value then vim.env[key] = value end
+    end
+    f:close()
+  end
+end
+
+-- 1. Run on startup
+sync_env()
+
+-- 2. Run whenever you save the .env file
+vim.api.nvim_create_autocmd('BufWritePost', {
+  pattern = '.env',
+  callback = function()
+    sync_env()
+    print 'Environment reloaded in Neovim.'
+  end,
+})
+
 vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
 
@@ -274,6 +307,7 @@ require('lazy').setup({
       'nvim-telescope/telescope.nvim',
       'mfussenegger/nvim-dap-python',
     },
+    lazy = false,
     -- branch = 'regexp', -- Use this branch for better performance
     config = function()
       require('venv-selector').setup {
@@ -281,6 +315,7 @@ require('lazy').setup({
           options = {
             cached_venv_automatic_activation = true, -- Remembers your choice per project
             search_venv_managers = true, -- Finds poetry, pipenv, etc.
+            notify_user_on_venv_activation = true,
           },
         },
       }
