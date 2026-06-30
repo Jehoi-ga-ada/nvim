@@ -303,7 +303,6 @@ require('lazy').setup({
   {
     'linux-cultist/venv-selector.nvim',
     dependencies = {
-      'neovim/nvim-lspconfig',
       'nvim-telescope/telescope.nvim',
       'mfussenegger/nvim-dap-python',
     },
@@ -313,6 +312,10 @@ require('lazy').setup({
       require('venv-selector').setup {
         settings = {
           options = {
+            on_venv_activate_callback = function(venv_path)
+              -- This forces Pyright to refresh its path when you switch envs
+              vim.cmd 'LspRestart'
+            end,
             cached_venv_automatic_activation = true, -- Remembers your choice per project
             search_venv_managers = true, -- Finds poetry, pipenv, etc.
             notify_user_on_venv_activation = true,
@@ -567,6 +570,9 @@ require('lazy').setup({
 
       -- Useful status updates for LSP.
       { 'j-hui/fidget.nvim', opts = {} },
+
+      -- JSON/YAML schema catalog (k8s, GitHub Actions, docker-compose, etc.)
+      'b0o/schemastore.nvim',
     },
     config = function()
       -- Brief aside: **What is LSP?**
@@ -672,6 +678,7 @@ require('lazy').setup({
         pyright = {
           settings = {
             python = {
+              pythonPath = vim.env.VIRTUAL_ENV and (vim.env.VIRTUAL_ENV .. '/bin/python') or 'python',
               analysis = {
                 typeCheckingMode = 'off', -- Reduces strictness to match VS Code
                 autoSearchPaths = true,
@@ -690,9 +697,36 @@ require('lazy').setup({
         -- ts_ls = {},
         ruff = {},
         dockerls = {},
-        jsonls = {},
-        yamlls = {},
         terraformls = {},
+
+        -- DevOps language servers (auto-installed via mason)
+        ansiblels = { filetypes = { 'ansible', 'yaml.ansible' } }, -- Ansible playbooks/roles
+        bashls = {}, -- shell scripts
+        helm_ls = {}, -- Helm chart templates
+        gh_actions_ls = {}, -- GitHub Actions workflows
+        regal = {}, -- Rego / OPA policies (Styra)
+
+        -- JSON: validate against the SchemaStore catalog
+        jsonls = {
+          settings = {
+            json = {
+              schemas = require('schemastore').json.schemas(),
+              validate = { enable = true },
+            },
+          },
+        },
+
+        -- YAML: let SchemaStore drive completion/validation
+        -- (covers k8s manifests, GitHub Actions, docker-compose, ansible, etc.)
+        yamlls = {
+          settings = {
+            yaml = {
+              schemaStore = { enable = false, url = '' },
+              schemas = require('schemastore').yaml.schemas(),
+            },
+          },
+        },
+
         stylua = {}, -- Used to format Lua code
 
         -- Special Lua Config, as recommended by neovim help docs
@@ -732,17 +766,37 @@ require('lazy').setup({
       --    :Mason
       --
       -- You can press `g?` for help in this menu.
-      local ensure_installed = vim.tbl_keys(servers or {})
-      vim.list_extend(ensure_installed, {
-        -- You can add other tools here that you want Mason to install
-      })
+      -- Ensure .rego files are detected so regal attaches
+      vim.filetype.add { extension = { rego = 'rego' } }
+
+      require('mason').setup()
+
+      local mlp_servers = vim.tbl_keys(servers)
+      local ensure_installed = {
+        'stylua',
+        -- DevOps linters & formatters (used by nvim-lint and conform)
+        'hadolint', -- Dockerfile linter
+        'tflint', -- Terraform linter
+        'yamllint', -- YAML linter
+        'shellcheck', -- shell-script linter
+        'shfmt', -- shell-script formatter
+        'ansible-lint', -- Ansible linter
+      }
+      vim.list_extend(ensure_installed, mlp_servers)
 
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
-      for name, server in pairs(servers) do
-        vim.lsp.config(name, server)
-        vim.lsp.enable(name)
-      end
+      require('mason-lspconfig').setup {
+        ensure_installed = mlp_servers, -- Only pass actual LSP names here
+        handlers = {
+          function(server_name)
+            local server = servers[server_name] or {}
+            server.capabilities = vim.tbl_deep_extend('force', {}, vim.lsp.protocol.make_client_capabilities(), server.capabilities or {})
+            -- This will now only run for valid LSPs
+            require('lspconfig')[server_name].setup(server)
+          end,
+        },
+      }
     end,
   },
 
@@ -783,6 +837,12 @@ require('lazy').setup({
         --
         -- You can use 'stop_after_first' to run the first available formatter from the list
         javascript = { 'prettierd', 'prettier', stop_after_first = true },
+        -- DevOps formatters (use the native CLIs: terraform / packer / shfmt)
+        terraform = { 'terraform_fmt' },
+        ['terraform-vars'] = { 'terraform_fmt' },
+        hcl = { 'packer_fmt' }, -- Packer/HCL files
+        sh = { 'shfmt' },
+        bash = { 'shfmt' },
       },
     },
   },
@@ -853,9 +913,6 @@ require('lazy').setup({
         -- Standard utility keys
         ['<C-space>'] = { 'show', 'show_documentation', 'hide_documentation' },
         ['<C-e>'] = { 'hide' },
-        sources = {
-          default = { 'lsp', 'path', 'snippets', 'buffer' },
-        },
 
         -- For more advanced Luasnip keymaps (e.g. selecting choice nodes, expansion) see:
         --    https://github.com/L3MON4D3/LuaSnip?tab=readme-ov-file#keymaps
@@ -871,10 +928,36 @@ require('lazy').setup({
         -- By default, you may press `<c-space>` to show the documentation.
         -- Optionally, set `auto_show = true` to show the documentation after a delay.
         documentation = { auto_show = false, auto_show_delay_ms = 500 },
+
+        -- Preselect the best match, but only insert it on explicit accept
+        -- (Tab/Enter) rather than previewing it as you navigate the menu.
+        list = { selection = { preselect = true, auto_insert = false } },
       },
 
       sources = {
-        default = { 'lsp', 'path', 'snippets' },
+        default = { 'lsp', 'path', 'snippets', 'buffer' },
+        providers = {
+          -- terraform-ls reports completion items whose textEdit range does
+          -- NOT cover the prefix you've already typed, so blink applies the
+          -- word next to it -> "bucket" becomes "bbucket" on accept.
+          -- (see blink.cmp issue #500, closed as an upstream LSP bug.)
+          -- Fix: for Terraform buffers, drop the server's textEdit and keep
+          -- its newText as insertText. blink then recomputes the replacement
+          -- range from its own keyword detection, which is correct.
+          lsp = {
+            transform_items = function(ctx, items)
+              local ft = vim.bo[ctx.bufnr or 0].filetype
+              if ft ~= 'terraform' and ft ~= 'terraform-vars' and ft ~= 'hcl' then return items end
+              for _, item in ipairs(items) do
+                if item.textEdit then
+                  item.insertText = item.insertText or item.textEdit.newText
+                  item.textEdit = nil
+                end
+              end
+              return items
+            end,
+          },
+        },
       },
 
       snippets = { preset = 'luasnip' },
@@ -1026,9 +1109,9 @@ require('lazy').setup({
   --
   require 'kickstart.plugins.debug',
   require 'kickstart.plugins.indent_line',
-  -- require 'kickstart.plugins.lint',
+  require 'kickstart.plugins.lint',
   require 'kickstart.plugins.autopairs',
-  -- require 'kickstart.plugins.neo-tree',
+  require 'kickstart.plugins.neo-tree',
   require 'kickstart.plugins.gitsigns', -- adds gitsigns recommended keymaps
 
   -- NOTE: The import below can automatically add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`

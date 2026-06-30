@@ -13,13 +13,14 @@ return {
   },
   lazy = false,
   keys = {
-    { '\\', ':Neotree reveal<CR>', desc = 'NeoTree reveal', silent = true },
+    { '\\', ':Neotree toggle float reveal<CR>', desc = 'NeoTree toggle (float)', silent = true },
   },
   ---@module 'neo-tree'
   ---@type neotree.Config
   opts = {
     filesystem = {
       window = {
+        position = 'float',
         mappings = {
           ['\\'] = 'close_window',
         },
