@@ -295,6 +295,39 @@ rtp:prepend(lazypath)
 --  To update plugins you can run
 --    :Lazy update
 --
+-- [[ Filetype detection ]]
+-- Runs here (not from a plugin's ftplugin) so `filetype` is final before FileType
+-- fires: treesitter attaches its highlighter on that event and never re-checks.
+-- A plugin that rewrites 'filetype' afterwards leaves a stale parser attached --
+-- that is how helm templates ended up being highlighted by the `yaml` parser.
+
+-- ponytail: helm templates are the only chart files that need the gotmpl parser;
+-- everything else in a chart is plain yaml and should keep yamlls + schemastore.
+local function in_chart(path)
+  local root = path:match('^(.*)/templates/')
+  return root ~= nil and vim.uv.fs_stat(root .. '/Chart.yaml') ~= nil
+end
+
+local function helm_if_chart(path)
+  return in_chart(path) and 'helm' or nil
+end
+
+vim.filetype.add {
+  extension = {
+    rego = 'rego', -- so regal attaches
+    gotmpl = 'helm',
+  },
+  pattern = {
+    -- *.yaml.example would otherwise fall back to `conf`: no yaml colors, no LSP
+    ['.*%.ya?ml%.example'] = 'yaml',
+    -- gotmpl-in-yaml: needs the `helm` parser, which injects yaml itself
+    ['.*/templates/.*%.ya?ml'] = { helm_if_chart, { priority = 10 } },
+    ['.*/templates/.*%.te?xt'] = { helm_if_chart, { priority = 10 } },
+    ['.*/templates/.*%.tpl'] = { helm_if_chart, { priority = 10 } },
+    ['.*/helmfile.*%.ya?ml'] = { 'helm', { priority = 10 } },
+  },
+}
+
 -- NOTE: Here is where you install your plugins.
 require('lazy').setup({
   -- NOTE: Plugins can be added via a link or github org/name. To run setup automatically, use `opts = {}`
@@ -766,9 +799,6 @@ require('lazy').setup({
       --    :Mason
       --
       -- You can press `g?` for help in this menu.
-      -- Ensure .rego files are detected so regal attaches
-      vim.filetype.add { extension = { rego = 'rego' } }
-
       require('mason').setup()
 
       local mlp_servers = vim.tbl_keys(servers)
@@ -1053,8 +1083,19 @@ require('lazy').setup({
     -- [[ Configure Treesitter ]] See `:help nvim-treesitter-intro`
     config = function()
       -- ensure basic parser are installed
-      local parsers = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' }
+      -- ponytail: pre-install what you actually open, so no first-open compile delay. Add a lang here if a new filetype colors slowly.
+      local parsers = {
+        'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc',
+        'python', 'json', 'yaml', 'toml', 'ini', 'go', 'gomod', 'rust', 'javascript', 'typescript', 'tsx',
+        'dockerfile', 'terraform', 'hcl', 'make', 'xml', 'gitignore', 'ssh_config', 'regex', 'latex', 'bibtex',
+        'gitcommit', 'git_config', 'git_rebase', 'helm', 'gotmpl', 'sql', 'proto',
+      }
       require('nvim-treesitter').install(parsers)
+
+      -- ansible playbooks get filetype=ansible (no such parser); highlight them with the yaml parser
+      vim.treesitter.language.register('yaml', 'ansible')
+      -- some .tex files land as filetype=plaintex (no such parser); use the latex parser
+      vim.treesitter.language.register('latex', 'plaintex')
 
       ---@param buf integer
       ---@param language string

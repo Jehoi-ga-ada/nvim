@@ -6,6 +6,17 @@
 --
 -- Note: formatting is handled by conform (terraform_fmt / packer_fmt),
 -- so the plugins' own format-on-save is left OFF to avoid double-running.
+--
+-- Helm needs no plugin: init.lua detects filetype=helm and treesitter has a
+-- `helm` parser. vim-helm was removed -- its ftdetect rewrote 'filetype' from a
+-- non-nested FileType autocmd, so FileType helm never fired and the buffer kept
+-- a stale `yaml` highlighter (templates rendered nearly colourless).
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'helm',
+  callback = function(args)
+    vim.bo[args.buf].commentstring = '{{/* %s */}}'
+  end,
+})
 
 ---@module 'lazy'
 ---@type LazySpec
@@ -18,13 +29,6 @@ return {
       vim.g.terraform_fmt_on_save = 0 -- conform owns formatting
       vim.g.terraform_align = 1
     end,
-  },
-
-  -- Helm: sets filetype=helm for chart templates so helm_ls attaches
-  -- and gotmpl-in-yaml doesn't show as broken YAML.
-  {
-    'towolf/vim-helm',
-    ft = { 'helm', 'yaml' },
   },
 
   -- Ansible: sets filetype=ansible for playbooks/roles so ansiblels
